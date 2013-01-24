@@ -1,23 +1,26 @@
 module AlsoMigrate
   module Migration
-    
+
     def self.included(base)
       unless base.respond_to?(:method_missing_with_also_migrate)
-        base.extend ClassMethods
+        base.extend MigrateMethods
         base.class_eval do
-          class <<self
+          class << self
             alias_method :method_missing_without_also_migrate, :method_missing
             alias_method :method_missing, :method_missing_with_also_migrate
           end
+          include MigrateMethods
+          alias_method :method_missing_without_also_migrate, :method_missing
+          alias_method :method_missing, :method_missing_with_also_migrate
         end
       end
     end
 
-    module ClassMethods
+    module MigrateMethods
 
       def method_missing_with_also_migrate(method, *arguments, &block)
         args = Marshal.load(Marshal.dump(arguments))
-        return_value = method_missing_without_also_migrate(method, *arguments, &block)
+        return_value = self.method_missing_without_also_migrate(method, *arguments, &block)
 
         supported = [
           :add_column, :add_index, :add_timestamps, :change_column,
@@ -26,14 +29,23 @@ module AlsoMigrate
           :remove_timestamps, :rename_column, :rename_table
         ]
 
+        # Rails reversible migrations are implemented by substituing a CommandRecorder
+        # object in place of the actual database connection. To ensure compatibility with
+        # the reversible migrations, we skip performing any actions during the 'up' part of the
+        # migration to allow the CommandRecorder to record the up version of changes to the source
+        # table. When the inverse operations are later replayed against the actual database connection,
+        # we will then allow the method_missing hooks to fire and generate corresponding changes for the
+        # 'down' part of the migration.
+        return if @connection.is_a?(ActiveRecord::Migration::CommandRecorder)
+
         if !args.empty? && supported.include?(method)
-          connection = ActiveRecord::Base.connection
+          connection = (@connection || ActiveRecord::Base.connection)
           table_name = ActiveRecord::Migrator.proper_table_name(args[0])
-          
+
           # Find models
           (::AlsoMigrate.configuration || []).each do |config|
             next unless config[:source].to_s == table_name
-        
+
             # Don't change ignored columns
             [ config[:ignore] ].flatten.compact.each do |column|
               next if args.include?(column) || args.include?(column.intern)
@@ -46,7 +58,7 @@ module AlsoMigrate
               next
             else
               [ config[:destination] ].flatten.compact.each do |table|
-                if connection.table_exists?(table)
+                if connection.try(:table_exists?, table)
                   args[0] = table
                   begin
                     connection.send(method, *args, &block)
@@ -58,7 +70,7 @@ module AlsoMigrate
             end
           end
         end
-        
+
         return return_value
       end
     end
