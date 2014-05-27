@@ -19,15 +19,15 @@ module AlsoMigrate
     module MigrateMethods
 
       def method_missing_with_also_migrate(method, *arguments, &block)
-        args = Marshal.load(Marshal.dump(arguments))
-        return_value = self.method_missing_without_also_migrate(method, *arguments, &block)
-
         supported = [
           :add_column, :add_index, :add_timestamps, :change_column,
           :change_column_default, :change_table, :create_table,
           :drop_table, :remove_column, :remove_columns,
           :remove_timestamps, :rename_column, :rename_table
         ]
+
+        args = Marshal.load(Marshal.dump(arguments)) if supported.include?(method)
+        return_value = self.method_missing_without_also_migrate(method, *arguments, &block)
 
         # Rails reversible migrations are implemented by substituing a CommandRecorder
         # object in place of the actual database connection. To ensure compatibility with
@@ -38,7 +38,7 @@ module AlsoMigrate
         # 'down' part of the migration.
         return if @connection.is_a?(ActiveRecord::Migration::CommandRecorder)
 
-        if !args.empty? && supported.include?(method)
+        if args && !args.empty? && supported.include?(method)
           connection = (@connection || ActiveRecord::Base.connection)
           table_name = ActiveRecord::Migrator.proper_table_name(args[0])
 
