@@ -40,7 +40,7 @@ module AlsoMigrate
 
         if args && !args.empty? && supported.include?(method)
           connection = (@connection || ActiveRecord::Base.connection)
-          table_name = ActiveRecord::Migrator.proper_table_name(args[0])
+          table_name = ActiveRecord::Migration.proper_table_name(args[0])
 
           # Find models
           (::AlsoMigrate.configuration || []).each do |config|
