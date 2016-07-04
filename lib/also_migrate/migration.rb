@@ -40,7 +40,11 @@ module AlsoMigrate
 
         if args && !args.empty? && supported.include?(method)
           connection = (@connection || ActiveRecord::Base.connection)
-          table_name = ActiveRecord::Migration.proper_table_name(args[0])
+          table_name = if ActiveRecord.version < Gem::Version.new("4.1")
+                         ActiveRecord::Migrator.proper_table_name(args[0])
+                       else
+                         ActiveRecord::Migration.proper_table_name(args[0])
+                       end
 
           # Find models
           (::AlsoMigrate.configuration || []).each do |config|
